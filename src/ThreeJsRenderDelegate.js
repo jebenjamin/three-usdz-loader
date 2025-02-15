@@ -1,10 +1,25 @@
 import * as THREE from "three";
 
+const debugTextures = false;
+const debugMaterials = false;
+const debugMeshes = false;
+const debugPrims = false;
+const disableTextures = false;
+const disableMaterials = false;
+
 class TextureRegistry {
   constructor(basename) {
     this.basename = basename;
     this.textures = [];
     this.loader = new THREE.TextureLoader();
+    // HACK get URL ?file parameter again
+    let urlParams = new URLSearchParams(window.location.search);
+    let fileParam = urlParams.get('file');
+    if (fileParam) {
+      let lastSlash = fileParam.lastIndexOf('/');
+      if (lastSlash >= 0)
+        fileParam = fileParam.substring(0, lastSlash);
+      this.baseUrl = fileParam;
   }
   getTexture(resourcePath) {
     if (debugTextures) console.log("get texture", resourcePath);
@@ -45,10 +60,6 @@ class TextureRegistry {
 
     this.config.driver().getFile(resourcePath, async (loadedFile) => {
       let loader = this.loader;
-      if (filetype === 'image/tga')
-        loader = this.tgaLoader;
-      else if (filetype === 'image/x-exr')
-        loader = this.exrLoader;
 
       const baseUrl = this.baseUrl;
       function loadFromFile(_loadedFile) {
