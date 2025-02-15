@@ -6,63 +6,100 @@ class TextureRegistry {
     this.textures = [];
     this.loader = new THREE.TextureLoader();
   }
-  getTexture(filename) {
-    if (this.textures[filename]) {
-      return this.textures[filename];
+  getTexture(resourcePath) {
+    if (debugTextures) console.log("get texture", resourcePath);
+    if (this.textures[resourcePath]) {
+      return this.textures[resourcePath];
     }
 
     let textureResolve, textureReject;
-    this.textures[filename] = new Promise((resolve, reject) => {
+    this.textures[resourcePath] = new Promise((resolve, reject) => {
       textureResolve = resolve;
       textureReject = reject;
     });
 
-    let resourcePath = filename;
-    if (filename[0] !== "/") {
-      resourcePath = this.basename + "[" + filename + "]";
+    if (!resourcePath) {
+      return Promise.reject(new Error('Empty resource path for file: ' + resourcePath + ' at ' + this.basename));
     }
 
     let filetype = undefined;
-    if (filename.indexOf(".png") >= filename.length - 5) {
-      filetype = "image/png";
-    } else if (filename.indexOf(".jpg") >= filename.length - 5) {
-      filetype = "image/jpeg";
-    } else if (filename.indexOf(".jpeg") >= filename.length - 5) {
-      filetype = "image/jpeg";
+    let lowercaseFilename = resourcePath.toLowerCase();
+    if (lowercaseFilename.indexOf('.png') >= lowercaseFilename.length - 5) {
+      filetype = 'image/png';
+    } else if (lowercaseFilename.indexOf('.jpg') >= lowercaseFilename.length - 5) {
+      filetype = 'image/jpeg';
+    } else if (lowercaseFilename.indexOf('.jpeg') >= lowercaseFilename.length - 5) {
+      filetype = 'image/jpeg';
+    } else if (lowercaseFilename.indexOf('.exr') >= lowercaseFilename.length - 4) {
+      console.warn("EXR textures are not fully supported yet", resourcePath);
+      // using EXRLoader explicitly
+      filetype = 'image/x-exr';
+    } else if (lowercaseFilename.indexOf('.tga') >= lowercaseFilename.length - 4) {
+      console.warn("TGA textures are not fully supported yet", resourcePath);
+      // using TGALoader explicitly
+      filetype = 'image/tga';
     } else {
-      throw new Error("Unknown filetype");
+      console.error("Error when loading texture: unknown filetype", resourcePath);
+      // throw new Error('Unknown filetype');
     }
 
-    window.driver.getFile(resourcePath, (loadedFile) => {
-      if (!loadedFile) {
-        textureReject(new Error("Unknown file: " + resourcePath));
-        return;
+    this.config.driver().getFile(resourcePath, async (loadedFile) => {
+      let loader = this.loader;
+      if (filetype === 'image/tga')
+        loader = this.tgaLoader;
+      else if (filetype === 'image/x-exr')
+        loader = this.exrLoader;
+
+      const baseUrl = this.baseUrl;
+      function loadFromFile(_loadedFile) {
+        let url = undefined;
+        if (debugTextures) console.log("window.driver.getFile", resourcePath, " => ", _loadedFile);
+        if (_loadedFile) {
+          let blob = new Blob([_loadedFile.slice(0)], { type: filetype });
+          url = URL.createObjectURL(blob);
+        } else {
+          if (baseUrl)
+            url = baseUrl + '/' + resourcePath;
+          else
+            url = resourcePath;
+        }
+        if (debugTextures) console.log("Loading texture from", url, "with loader", loader, "_loadedFile", _loadedFile, "baseUrl", baseUrl, "resourcePath", resourcePath);
+        // Load the texture
+        loader.load(
+          // resource URL
+          url,
+
+          // onLoad callback
+          (texture) => {
+            texture.name = resourcePath;
+            textureResolve(texture);
+          },
+
+          // onProgress callback currently not used
+          undefined,
+
+          // onError callback
+          (err) => {
+            textureReject(err);
+          }
+        );
       }
 
-      let blob = new Blob([loadedFile.slice(0)], { type: filetype });
-      let blobUrl = URL.createObjectURL(blob);
-
-      // Load the texture
-      this.loader.load(
-        // resource URL
-        blobUrl,
-
-        // onLoad callback
-        (texture) => {
-          textureResolve(texture);
-        },
-
-        // onProgress callback currently not used
-        undefined,
-
-        // onError callback
-        (err) => {
-          textureReject(err);
+      if (!loadedFile) {
+        // if the file is not part of the filesystem, we can still try to fetch it from the network
+        if (baseUrl) {
+          console.log("File not found in filesystem, trying to fetch", resourcePath);
         }
-      );
+        else {
+          textureReject(new Error('Unknown file: ' + resourcePath));
+          return;
+        }
+      }
+
+      loadFromFile(loadedFile);
     });
 
-    return this.textures[filename];
+    return this.textures[resourcePath];
   }
 }
 
